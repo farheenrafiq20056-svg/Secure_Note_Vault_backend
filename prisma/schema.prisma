@@ -1,0 +1,64 @@
+// Prisma Schema for Secure Notes Vault
+// Database: PostgreSQL with Prisma ORM
+// Assignment Task 1 & 9: Relational schema with Foreign Keys and UUID-decoupled identity
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// User Model: Stores identity and authentication credentials
+// Note: Email is unique, passwordHash is stored (never plaintext password)
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  passwordHash String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  notes        Note[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+// Note Model: Encrypted note storage
+// Note: Content is never stored in plaintext. AES-256-GCM ciphertext, auth tag, and nonce are stored.
+// Added `isFavorite` and `tags` columns demonstrate schema evolution & migrations (Assignment Task 3).
+model Note {
+  id               String     @id @default(uuid()) @db.Uuid
+  userId           String     @db.Uuid
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  contentEncrypted String     // Hex/Base64 ciphertext containing encrypted body + tag
+  nonce            String     // Hex Initialization Vector (IV) for AES-256-GCM
+  isFavorite       Boolean    @default(false) // Migration added column
+  tags             String[]   @default([])    // Migration added column
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  auditLogs        AuditLog[]
+
+  @@index([userId])
+  @@map("notes")
+}
+
+// AuditLog Model: Records sensitive operations (CRUD) for security audit trails
+// Created atomically within a database transaction alongside note mutations (Assignment Task 8: ACID)
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String   // e.g., "NOTE_CREATE", "NOTE_READ", "NOTE_UPDATE", "NOTE_DELETE"
+  noteId    String?  @db.Uuid
+  note      Note?    @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([noteId])
+  @@map("audit_logs")
+}
